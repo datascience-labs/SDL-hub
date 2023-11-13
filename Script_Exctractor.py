@@ -3,7 +3,7 @@ import urllib.parse, urllib.request
 from urllib import parse
 from youtube_transcript_api import YouTubeTranscriptApi
 import json
-
+import logging
 
 class Script_Exctractor:
     #NUM_OF_WORDS is depend on options
@@ -21,7 +21,7 @@ class Script_Exctractor:
         vid = parse.parse_qs(parsed_url.query)['v'][0]
 
         # Fetching the transcript
-        transcript = YouTubeTranscriptApi.get_transcript(vid, ['ko','en'])
+        transcript = YouTubeTranscriptApi.get_transcript(vid, ['en'])
 
         # Splitting transcript into time intervals
         sentences = []
@@ -42,7 +42,7 @@ class Script_Exctractor:
             text = self.scriptData[i].replace(u'\xa0', u' ').replace(u'\n',u' ').replace(u'  ',u' ')
             self.scriptData[i] = text
 
-    def CallWikifier(self, text, lang="ko", threshold=0.8, numberOfKCs=10):
+    def CallWikifier(self, text, lang="en", threshold=0.8, numberOfKCs=10):
         # Prepare the URL.
         data = urllib.parse.urlencode([
                 ("text", text), ("lang", lang),
@@ -85,7 +85,7 @@ class Script_Exctractor:
         number = 1
         results = []
         for text in self.scriptData:
-            print(f"{number} segemnt")
+            logging.info(f"{number}th segment is processed")
             # print(text) # print script
             results.append(self.CallWikifier(text=text, numberOfKCs=self.NUM_OF_WORDS))
             number += 1

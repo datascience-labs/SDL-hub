@@ -1,6 +1,8 @@
 import streamlit as st
 import googleapiclient.discovery
 import streamlit.components.v1 as components
+import matplotlib.pyplot as plt
+import numpy as np
 import utils
 import pandas as pd
 import re
@@ -10,10 +12,12 @@ from pyvis.network import Network
 from datetime import datetime, timedelta
 from Script_Exctractor import Script_Exctractor
 
+st.set_option('deprecation.showPyplotGlobalUse', False)
+
 # Default values for options
-NUM_OF_VIDEOS = 10
+NUM_OF_VIDEOS = 20
 TIME_DIVISION = 600
-NUM_OF_WORDS = 5
+NUM_OF_WORDS = 25
 ALPHA_OF_SIMILARITY = 0.8
 OUT_FILENAME = "./data/watchedVideo_concepts.csv"
 
@@ -145,7 +149,7 @@ with st.sidebar:
 
 # get search text
 def get_text():
-    input_text = st.text_input("아직 잘 모르는 지식 또는 물건 사용법 등을 검색", value="키오스크 사용법", key="input")
+    input_text = st.text_input("아직 잘 모르는 지식 또는 물건 사용법 등을 검색", value="digital literacy for aging", key="input")
     return input_text
 
 def duration_to_minutes(duration_str):
@@ -223,6 +227,32 @@ def make_csv():
     # Save DataFrame to a CSV file
     df.to_csv(OUT_FILENAME, index=False)
 
+# converting graph to color spectrum
+def draw_graph_to_spectrum():
+    df = pd.read_csv(OUT_FILENAME)    
+    data = df.to_dict(orient='records')
+    
+    pageranks = np.array([item['pagerank'] for item in data])
+    learned = np.array([item['understand'] for item in data])
+    scores = pageranks * learned
+    
+    # Create a color spectrum based on pagerank
+    colors = plt.cm.viridis(pageranks / max(pageranks))
+
+    # fig, ax = plt.subplots()
+    # Creating a scatter plot
+    plt.figure(figsize=(10, 6))
+    for i, item in enumerate(data):
+        plt.scatter(i, scores[i], color=colors[i], s=50, label=f'{item["concept"]} ({scores[i]:.5f})')
+
+    plt.title("Digtal Literacy Spectrum")
+    plt.xlabel("Data Points")
+    plt.ylabel("Scores")
+    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+    
+    st.pyplot()
+
 # Visualizing the graph through a CSV file
 def visualize_dynamic_network():
     got_net = Network(width="1200px", height="800px", bgcolor="#EEEEEF",directed=True, font_color="black",cdn_resources='remote', notebook=True)
@@ -250,7 +280,8 @@ def visualize_dynamic_network():
 
             node_color = "red" if und == 1 else "black"
             edge_label = "has been learned from" if und == 1 else "can be learned in"
-            node_size = 50 + 10000 * pag # Increasing the node size based on the pagerank value
+            max_size = 200
+            node_size = min(50 + 10000 * pag, max_size)# Increasing the node size based on the pagerank value
             
             got_net.add_node(vid, label=vid, title=vid, size=100)
             got_net.add_node(con, label=con, title=con, color=node_color, size=node_size)
@@ -275,43 +306,89 @@ def extract_concepts(selected_video):
 
             st.markdown(f"<h5>(segment {seg_no}) {start_segment.strftime('%H:%M:%S')} - {end_segment.strftime('%H:%M:%S')}</h5>", unsafe_allow_html=True)
 
-            cols = st.columns(len(segment_data))
+
+            for start_idx in range(0, len(segment_data), 5):
+                end_idx = min(start_idx + 5, len(segment_data))
+                subset = segment_data.iloc[start_idx:end_idx]
+
+                cols = st.columns(5)
+                for index, row in subset.iterrows():
+                    title = row['title']
+                    understand = row['understand']
+
+                    # Button style based on understand column
+                    if understand == 0:
+                        button_style = "black"
+                    else:
+                        button_style = "red"
+
+                    with cols[index % 5]:
+                        # Button click event
+                        if st.button(f":{button_style}[{title}]", key=f"{selected_video.name}_{seg_no}_{index}", help=f"{seg_no}_{index}"):
+                            # Toggle 'understand' value when the button is clicked
+                            understand = selected_video.segment.at[index, 'understand']
+
+                            if understand == 0:
+                                clicked_word_url = row['url']
+                                # Update 'understand' to 1 for all rows with the same URL
+                                selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 1
+                            else:
+                                clicked_word_url = row['url']
+                                # Update 'understand' to 0 for all rows with the same URL
+                                selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 0
+                            
+                            for idx,video in enumerate(watchedVideo):
+                                if(video.name==selected_video.name):
+                                    watchedVideo[idx]=selected_video
+                                    with open("./data/watchedVideo.pkl", "wb") as file:
+                                        pickle.dump(watchedVideo, file)
+                                    with open("./data/selected_video.pkl", "wb") as file:
+                                        pickle.dump(selected_video, file)
+                            
+                            make_csv() # Save DataFrame to a CSV file
+                        
             
-            # Display concepts with buttons
-            for index, row in segment_data.iterrows():
-                title = row['title']
-                understand = row['understand']
+            # for index, row in segment_data.iterrows():
+            #     title = row['title']
+            #     understand = row['understand']
 
-                # Button style based on understand column
-                if understand == 0:
-                    button_style = "black"
-                else:
-                    button_style = "red"
+            #     # Button style based on understand column
+            #     if understand == 0:
+            #         button_style = "black"
+            #     else:
+            #         button_style = "red"
 
-                with cols[index % len(segment_data)]:
-                    # Button click event
-                    if st.button(f":{button_style}[{title}]", key=f"{selected_video.name}_{seg_no}_{index}", help=f"{seg_no}_{index}"):
-                        # Toggle 'understand' value when the button is clicked
-                        understand = selected_video.segment.at[index, 'understand']
+            #     rows = int(NUM_OF_WORDS / 5) + 1
+            #     # cols = st.columns(len(segment_data))
+                
+            #     for i in range(rows):
+            #         cols = st.columns(5)
+            #         # Display concepts with buttons
+            #         IDX = index % NUM_OF_WORDS + 1
+            #         with cols[IDX]:
+            #             # Button click event
+            #             if st.button(f":{button_style}[{title}]", key=f"{selected_video.name}_{seg_no}_{index}", help=f"{seg_no}_{index}"):
+            #                 # Toggle 'understand' value when the button is clicked
+            #                 understand = selected_video.segment.at[index, 'understand']
 
-                        if understand == 0:
-                            clicked_word_url = row['url']
-                            # Update 'understand' to 1 for all rows with the same URL
-                            selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 1
-                        else:
-                            clicked_word_url = row['url']
-                            # Update 'understand' to 0 for all rows with the same URL
-                            selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 0
-                        
-                        for idx,video in enumerate(watchedVideo):
-                            if(video.name==selected_video.name):
-                                watchedVideo[idx]=selected_video
-                                with open("./data/watchedVideo.pkl", "wb") as file:
-                                    pickle.dump(watchedVideo, file)
-                                with open("./data/selected_video.pkl", "wb") as file:
-                                    pickle.dump(selected_video, file)
-                        
-                        make_csv() # Save DataFrame to a CSV file
+            #                 if understand == 0:
+            #                     clicked_word_url = row['url']
+            #                     # Update 'understand' to 1 for all rows with the same URL
+            #                     selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 1
+            #                 else:
+            #                     clicked_word_url = row['url']
+            #                     # Update 'understand' to 0 for all rows with the same URL
+            #                     selected_video.segment.loc[selected_video.segment['url'] == clicked_word_url, 'understand'] = 0
+                            
+            #                 for idx,video in enumerate(watchedVideo):
+            #                     if(video.name==selected_video.name):
+            #                         watchedVideo[idx]=selected_video
+            #                         with open("./data/watchedVideo.pkl", "wb") as file:
+            #                             pickle.dump(watchedVideo, file)
+            #                         with open("./data/selected_video.pkl", "wb") as file:
+            #                             pickle.dump(selected_video, file)
+                            
+            #                 make_csv() # Save DataFrame to a CSV file
     else:
         st.write("No segment information available for the selected video.")
 
@@ -426,6 +503,9 @@ with tab3:
     st.header("Visualization: The Network of Concepts You Have Learned")
     st.write("This tab visualizes the concepts encountered in the videos you've learned. Sky blue nodes represent the videos you've watched, while red nodes indicate the concepts you've understood. Black nodes represent concepts you haven't grasped yet. If different videos refer to the same concept, they will be connected as a single node.")
     visualize_dynamic_network()
+
+    st.write("Digital Literacy Spectrum")
+    draw_graph_to_spectrum()
 
 with open('style.css', 'rt', encoding='UTF8') as f:
     st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True )
